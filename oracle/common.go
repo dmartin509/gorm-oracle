@@ -227,9 +227,6 @@ func convertValue(val interface{}) interface{} {
 
 	// Dereference pointers
 	rv := reflect.ValueOf(val)
-	if rv.Kind() == reflect.Ptr && rv.IsNil() {
-		return nil
-	}
 
 	for rv.Kind() == reflect.Ptr && !rv.IsNil() {
 		rv = rv.Elem()
@@ -259,8 +256,11 @@ func convertValue(val interface{}) interface{} {
 			return ""
 		}
 		return val
-	case bool:
-		if v {
+	case bool, *bool:
+		if isNil {
+			return (*int)(nil)
+		}
+		if v == true {
 			return 1
 		} else {
 			return 0

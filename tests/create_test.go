@@ -921,3 +921,84 @@ func TestCreateAndUpdateLargeString(t *testing.T) {
 		tests.AssertObjEqual(t, p, updatedFolder.Properties[i], "Seq", "ID", "Key", "Value")
 	}
 }
+
+func TestCreateChildrenWithMixedPointers(t *testing.T) {
+	type child struct {
+		ID       string `gorm:"column:child_id;primaryKey;type:varchar(36)"`
+		ParentID string `gorm:"column:parent_id;type:varchar(36);not null"`
+		IntPtr   *int   `gorm:"column:int_ptr;type:integer"`
+		BoolPtr  *bool  `gorm:"column:bool_ptr;type:number(1)"`
+	}
+
+	type parent struct {
+		ID       string  `gorm:"column:parent_id;primaryKey;type:varchar(36)"`
+		Children []child `gorm:"foreignKey:ParentID"`
+	}
+
+	parents := []parent{
+		{
+			ID: "Parent1",
+			Children: []child{
+				{
+					// Child 1 should have nils for pointers
+					ID:       "1",
+					ParentID: "Parent1",
+					BoolPtr:  (*bool)(nil),
+					IntPtr:   (*int)(nil),
+				},
+				{
+					// Child 2 should have non-nil values for pointers
+					ID:       "2",
+					ParentID: "Parent1",
+					IntPtr:   func() *int { i := 1; return &i }(),
+					BoolPtr:  func() *bool { b := true; return &b }(),
+				},
+			},
+		},
+	}
+
+	DB.Migrator().DropTable(&parent{})
+	DB.Migrator().DropTable(&child{})
+	err := DB.AutoMigrate(&child{})
+	if err != nil {
+		t.Fatalf("errors happened when create after migrate: %v", err)
+	}
+	DB.AutoMigrate(&parent{})
+
+	err = DB.Model(&parents).Create(&parents).Error
+	if err != nil {
+		t.Fatalf("errors happened when create after migrate: %v", err)
+	}
+
+	// verify parents and children are created correctly
+	var resultParents []parent
+	err = DB.Preload("Children").Find(&resultParents).Error
+	if err != nil {
+		t.Fatalf("errors happened when querying after create: %v", err)
+	}
+
+	if len(resultParents) != 1 {
+		t.Fatalf("expected 1 parent, got %d", len(resultParents))
+	}
+
+	if len(resultParents[0].Children) != 2 {
+		t.Fatalf("expected 2 children, got %d", len(resultParents[0].Children))
+	}
+
+	if resultParents[0].Children[0].IntPtr != nil {
+		t.Fatalf("expected second child's order to be nil, got %v", resultParents[0].Children[0].IntPtr)
+	}
+
+	if resultParents[0].Children[1].IntPtr == nil || *resultParents[0].Children[1].IntPtr != 1 {
+		t.Fatalf("expected first child's order to be 1, got %v", resultParents[0].Children[1].IntPtr)
+	}
+
+	if resultParents[0].Children[0].BoolPtr != nil {
+		t.Fatalf("expected first child's has to be nil, got %v", *resultParents[0].Children[0].BoolPtr)
+	}
+
+	if resultParents[0].Children[1].BoolPtr == nil || *resultParents[0].Children[1].BoolPtr != true {
+		t.Fatalf("expected second child's has to be true, got %v", resultParents[0].Children[1].BoolPtr)
+	}
+
+}
